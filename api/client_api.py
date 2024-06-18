@@ -2,12 +2,14 @@ import os
 from fastapi import FastAPI, HTTPException, Depends, Request, Response
 from pydantic import BaseModel
 from typing import List
-from sqlalchemy import create_engine, Column, Integer, String
+from sqlalchemy import create_engine, Column, Integer, String, DateTime
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session
+from sqlalchemy.sql import func
 from prometheus_client import Summary, Counter, generate_latest, CONTENT_TYPE_LATEST
 import pika
 import logging
+from datetime import datetime, timedelta
 
 logger = logging.getLogger("uvicorn.error")
 
@@ -45,12 +47,12 @@ class Client(Base):
     __tablename__ = "client"
     id = Column(Integer, primary_key=True, index=True)
     name = Column(String, index=True)
-    quantity = Column(Integer, index=True)
+    createdAt = Column(DateTime(timezone=True), server_default=func.now())
+    adresse = Column(String)
 
 # Création d'un modèle pydantic pour la création de client
 class ClientCreate(BaseModel):
     name: str
-    quantity: int
 
 # Création d'un modèle pydantic pour la réponse de client
 class ClientResponse(ClientCreate):
@@ -87,11 +89,38 @@ def connect_rabbitmq():
         logger.error(f"Failed to connect to RabbitMQ: {e}")
         raise HTTPException(status_code=500, detail="Could not connect to RabbitMQ")
 
+failed_attempts = {}
+
+# Fonction pour vérifier et limiter les tentatives de connexion
+def rate_limiting(ip_address: str):
+    now = datetime.now()
+    if ip_address in failed_attempts:
+        attempt_info = failed_attempts[ip_address]
+        last_attempt_time = attempt_info["timestamp"]
+        attempts = attempt_info["count"]
+        logger.info(f"IP {ip_address}: {attempts} attempts, last attempt at {last_attempt_time}")
+        # Si moins de 60 secondes depuis la dernière tentative, augmenter le compteur de tentatives
+        if now - last_attempt_time < timedelta(seconds=60):
+            attempts += 1
+            failed_attempts[ip_address] = {"count": attempts, "timestamp": now}
+            # Si plus de 5 tentatives dans les 60 secondes, déclencher la limitation
+            if attempts > 5:
+                raise HTTPException(status_code=429, detail="Too many requests. Try again later.")
+        else:
+            # Réinitialiser après 60 secondes
+            failed_attempts[ip_address] = {"count": 1, "timestamp": now}
+    else:
+        failed_attempts[ip_address] = {"count": 1, "timestamp": now}
+    logger.info(f"IP {ip_address}: allowed")
+
 
 # Route POST pour créer un nouveau client dans l'API
 @app.post("/clients/create", response_model=ClientResponse)
-async def create_client(client: ClientCreate, db: Session = Depends(get_db)):
-    db_client = Client(name=client.name, quantity=client.quantity)
+async def create_client(request: Request, client: ClientCreate, db: Session = Depends(get_db)):
+    client_ip = request.client.host
+    rate_limiting(client_ip)  # Limiter les tentatives de connexion par adresse IP
+
+    db_client = Client(name=client.name, adresse="", )
     db.add(db_client)
     db.commit()
     db.refresh(db_client)
@@ -99,7 +128,7 @@ async def create_client(client: ClientCreate, db: Session = Depends(get_db)):
         try:
             # Envoyer un message à RabbitMQ
             channel = connect_rabbitmq()
-            message = f"Client créé: {client.name} avec quantité: {client.quantity}"
+            message = f"Client créé: {client.name}"
             channel.basic_publish(exchange='', routing_key=RABBITMQ_QUEUE, body=message)
             channel.close()
         except Exception as e:
@@ -116,7 +145,10 @@ async def read_clients(skip: int = 0, limit: int = 10, db: Session = Depends(get
 
 # Route DELETE pour supprimer un client par son id
 @app.delete("/clients/{client_id}")
-async def delete_client(client_id: int, db: Session = Depends(get_db)):
+async def delete_client(request: Request, client_id: int, db: Session = Depends(get_db)):
+    client_ip = request.client.host
+    rate_limiting(client_ip)  # Limiter les tentatives de connexion par adresse IP
+
     db_client = db.query(Client).filter(Client.id == client_id).first()
     if db_client is None:
         raise HTTPException(status_code=404, detail="Client not found")
