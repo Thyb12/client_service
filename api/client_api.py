@@ -2,12 +2,13 @@ import os
 from fastapi import FastAPI, HTTPException, Depends, Request, Response
 from pydantic import BaseModel
 from typing import List
-from sqlalchemy import create_engine, Column, Integer, String
+from sqlalchemy import create_engine, Column, Integer, String, DateTime, ForeignKey
 from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker, Session
+from sqlalchemy.orm import sessionmaker, Session, relationship
 from prometheus_client import Summary, Counter, generate_latest, CONTENT_TYPE_LATEST
 import pika
 import logging
+from datetime import datetime
 
 logger = logging.getLogger("uvicorn.error")
 
@@ -41,20 +42,45 @@ def get_db(env: str = "prod"):
 # Définition d'un modèle de données pour un client dans la base de données
 Base = declarative_base()
 
+class Address(Base):
+    __tablename__ = "address"
+    id = Column(Integer, primary_key=True)
+    postalCode = Column(String)
+    city = Column(String)
+    client_id = Column(Integer, ForeignKey('client.id'))
+
+class Commande(Base):
+    __tablename__ = "commande"
+    id = Column(Integer, primary_key=True)
+    client_id = Column(Integer, ForeignKey('client.id'))
+    details = Column(String)
+
 class Client(Base):
     __tablename__ = "client"
     id = Column(Integer, primary_key=True, index=True)
+    createdAt = Column(DateTime, default=datetime.utcnow)
     name = Column(String, index=True)
-    quantity = Column(Integer, index=True)
+    username = Column(String, index=True)
+    firstName = Column(String)
+    lastName = Column(String)
+    companyName = Column(String)
+    address = relationship("Address", backref="client", uselist=False)
+    commandes = relationship("Commande", backref="client")
 
 # Création d'un modèle pydantic pour la création de client
 class ClientCreate(BaseModel):
     name: str
-    quantity: int
+    username: str
+    firstName: str
+    lastName: str
+    companyName: str
+    postalCode: str
+    city: str
 
 # Création d'un modèle pydantic pour la réponse de client
 class ClientResponse(ClientCreate):
     id: int
+    createdAt: datetime
 
     class Config:
         orm_mode = True
@@ -87,19 +113,20 @@ def connect_rabbitmq():
         logger.error(f"Failed to connect to RabbitMQ: {e}")
         raise HTTPException(status_code=500, detail="Could not connect to RabbitMQ")
 
-
 # Route POST pour créer un nouveau client dans l'API
 @app.post("/clients/create", response_model=ClientResponse)
 async def create_client(client: ClientCreate, db: Session = Depends(get_db)):
-    db_client = Client(name=client.name, quantity=client.quantity)
+    db_client = Client(name=client.name, username=client.username, firstName=client.firstName, lastName=client.lastName, companyName=client.companyName)
+    db_address = Address(postalCode=client.postalCode, city=client.city, client=db_client)
     db.add(db_client)
+    db.add(db_address)
     db.commit()
     db.refresh(db_client)
     if os.getenv("ENV") == "prod":
         try:
             # Envoyer un message à RabbitMQ
             channel = connect_rabbitmq()
-            message = f"Client créé: {client.name} avec quantité: {client.quantity}"
+            message = f"Client créé: {client.name} avec adresse: {client.city}, {client.postalCode}"
             channel.basic_publish(exchange='', routing_key=RABBITMQ_QUEUE, body=message)
             channel.close()
         except Exception as e:
@@ -131,4 +158,3 @@ async def read_specific_client(client_id: int, db: Session = Depends(get_db)):
     if db_client is None:
         raise HTTPException(status_code=404, detail="Client not found")
     return db_client
-
