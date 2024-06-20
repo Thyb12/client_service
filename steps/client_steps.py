@@ -23,9 +23,15 @@ def db():
     yield db
     db.close()
 
+<<<<<<< HEAD
 @given('je crée un client avec le nom "{name}" et la quantité {quantity:d}')
 async def create_product(context, name, quantity):
     client_data = {"name": name, "quantity": quantity}
+=======
+@given('je crée un client avec le nom "{name}"')
+async def create_product(context, name):
+    client_data = {"name": name}
+>>>>>>> origin/main
     context.client_created = await create_client(client_data, db())
 
 
@@ -54,6 +60,7 @@ async def check_product_deleted(context):
 async def check_specific_product_received(context, product_id):
     assert read_specific_client(product_id) == context.clients[0]
 
+<<<<<<< HEAD
 @then('un message RabbitMQ est envoyé avec les détails du client "{name} {quantity}')
 @patch('api.client_api.connect_rabbitmq')
 async def check_rabbitmq_message_sent(mock_connect_rabbitmq, name, quantity):
@@ -64,3 +71,15 @@ async def check_rabbitmq_message_sent(mock_connect_rabbitmq, name, quantity):
 
     mock_connect_rabbitmq.assert_called_once()
     mock_channel.basic_publish.assert_called_once_with(exchange='', routing_key='client_queue', body=f"client créé: {name} avec quantité: {context.client_created.quantity}")
+=======
+@then('un message RabbitMQ est envoyé avec les détails du client "{name}')
+@patch('api.client_api.connect_rabbitmq')
+async def check_rabbitmq_message_sent(mock_connect_rabbitmq, name):
+    mock_channel = mock_connect_rabbitmq.return_value
+    mock_channel.basic_get.return_value = (None, None, f"client créé: {name}".encode('utf-8'))
+
+    await create_client( client={"name": name}, db=db())
+
+    mock_connect_rabbitmq.assert_called_once()
+    mock_channel.basic_publish.assert_called_once_with(exchange='', routing_key='client_queue', body=f"client créé: {name}")
+>>>>>>> origin/main
