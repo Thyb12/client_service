@@ -2,7 +2,6 @@ import os
 from fastapi import FastAPI, HTTPException, Depends, Request, Response
 from pydantic import BaseModel
 from typing import List
-<<<<<<< HEAD
 from sqlalchemy import create_engine, Column, Integer, String, DateTime, ForeignKey
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import sessionmaker, Session, relationship
@@ -10,16 +9,6 @@ from prometheus_client import Summary, Counter, generate_latest, CONTENT_TYPE_LA
 import pika
 import logging
 from datetime import datetime
-=======
-from sqlalchemy import create_engine, Column, Integer, String, DateTime
-from sqlalchemy.ext.declarative import declarative_base
-from sqlalchemy.orm import sessionmaker, Session
-from sqlalchemy.sql import func
-from prometheus_client import Summary, Counter, generate_latest, CONTENT_TYPE_LATEST
-import pika
-import logging
-from datetime import datetime, timedelta
->>>>>>> origin/main
 
 logger = logging.getLogger("uvicorn.error")
 
@@ -53,7 +42,6 @@ def get_db(env: str = "prod"):
 # Définition d'un modèle de données pour un client dans la base de données
 Base = declarative_base()
 
-<<<<<<< HEAD
 class Address(Base):
     __tablename__ = "address"
     id = Column(Integer, primary_key=True)
@@ -78,35 +66,21 @@ class Client(Base):
     companyName = Column(String)
     address = relationship("Address", backref="client", uselist=False)
     commandes = relationship("Commande", backref="client")
-=======
-class Client(Base):
-    __tablename__ = "client"
-    id = Column(Integer, primary_key=True, index=True)
-    name = Column(String, index=True)
-    createdAt = Column(DateTime(timezone=True), server_default=func.now())
-    adresse = Column(String)
->>>>>>> origin/main
 
 # Création d'un modèle pydantic pour la création de client
 class ClientCreate(BaseModel):
     name: str
-<<<<<<< HEAD
     username: str
     firstName: str
     lastName: str
     companyName: str
     postalCode: str
     city: str
-=======
->>>>>>> origin/main
 
 # Création d'un modèle pydantic pour la réponse de client
 class ClientResponse(ClientCreate):
     id: int
-<<<<<<< HEAD
     createdAt: datetime
-=======
->>>>>>> origin/main
 
     class Config:
         orm_mode = True
@@ -139,7 +113,6 @@ def connect_rabbitmq():
         logger.error(f"Failed to connect to RabbitMQ: {e}")
         raise HTTPException(status_code=500, detail="Could not connect to RabbitMQ")
 
-<<<<<<< HEAD
 # Route POST pour créer un nouveau client dans l'API
 @app.post("/clients/create", response_model=ClientResponse)
 async def create_client(client: ClientCreate, db: Session = Depends(get_db)):
@@ -147,52 +120,13 @@ async def create_client(client: ClientCreate, db: Session = Depends(get_db)):
     db_address = Address(postalCode=client.postalCode, city=client.city, client=db_client)
     db.add(db_client)
     db.add(db_address)
-=======
-failed_attempts = {}
-
-# Fonction pour vérifier et limiter les tentatives de connexion
-def rate_limiting(ip_address: str):
-    now = datetime.now()
-    if ip_address in failed_attempts:
-        attempt_info = failed_attempts[ip_address]
-        last_attempt_time = attempt_info["timestamp"]
-        attempts = attempt_info["count"]
-        logger.info(f"IP {ip_address}: {attempts} attempts, last attempt at {last_attempt_time}")
-        # Si moins de 60 secondes depuis la dernière tentative, augmenter le compteur de tentatives
-        if now - last_attempt_time < timedelta(seconds=60):
-            attempts += 1
-            failed_attempts[ip_address] = {"count": attempts, "timestamp": now}
-            # Si plus de 5 tentatives dans les 60 secondes, déclencher la limitation
-            if attempts > 5:
-                raise HTTPException(status_code=429, detail="Too many requests. Try again later.")
-        else:
-            # Réinitialiser après 60 secondes
-            failed_attempts[ip_address] = {"count": 1, "timestamp": now}
-    else:
-        failed_attempts[ip_address] = {"count": 1, "timestamp": now}
-    logger.info(f"IP {ip_address}: allowed")
-
-
-# Route POST pour créer un nouveau client dans l'API
-@app.post("/clients/create", response_model=ClientResponse)
-async def create_client(request: Request, client: ClientCreate, db: Session = Depends(get_db)):
-    client_ip = request.client.host
-    rate_limiting(client_ip)  # Limiter les tentatives de connexion par adresse IP
-
-    db_client = Client(name=client.name, adresse="", )
-    db.add(db_client)
->>>>>>> origin/main
     db.commit()
     db.refresh(db_client)
     if os.getenv("ENV") == "prod":
         try:
             # Envoyer un message à RabbitMQ
             channel = connect_rabbitmq()
-<<<<<<< HEAD
             message = f"Client créé: {client.name} avec adresse: {client.city}, {client.postalCode}"
-=======
-            message = f"Client créé: {client.name}"
->>>>>>> origin/main
             channel.basic_publish(exchange='', routing_key=RABBITMQ_QUEUE, body=message)
             channel.close()
         except Exception as e:
@@ -209,14 +143,7 @@ async def read_clients(skip: int = 0, limit: int = 10, db: Session = Depends(get
 
 # Route DELETE pour supprimer un client par son id
 @app.delete("/clients/{client_id}")
-<<<<<<< HEAD
 async def delete_client(client_id: int, db: Session = Depends(get_db)):
-=======
-async def delete_client(request: Request, client_id: int, db: Session = Depends(get_db)):
-    client_ip = request.client.host
-    rate_limiting(client_ip)  # Limiter les tentatives de connexion par adresse IP
-
->>>>>>> origin/main
     db_client = db.query(Client).filter(Client.id == client_id).first()
     if db_client is None:
         raise HTTPException(status_code=404, detail="Client not found")
@@ -231,7 +158,3 @@ async def read_specific_client(client_id: int, db: Session = Depends(get_db)):
     if db_client is None:
         raise HTTPException(status_code=404, detail="Client not found")
     return db_client
-<<<<<<< HEAD
-=======
-
->>>>>>> origin/main
