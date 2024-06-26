@@ -158,3 +158,23 @@ async def read_specific_client(client_id: int, db: Session = Depends(get_db)):
     if db_client is None:
         raise HTTPException(status_code=404, detail="Client not found")
     return db_client
+
+# Route PUT pour modifier un client par son id
+@app.put("/clients/{client_id}", response_model=ClientResponse)
+async def update_client(client_id: int, client: ClientCreate, db: Session = Depends(get_db)):
+    db_client = db.query(Client).filter(Client.id == client_id).first()
+    if db_client is None:
+        raise HTTPException(status_code=404, detail="Client not found")
+    
+    db_client.name = client.name
+    db_client.username = client.username
+    db_client.firstName = client.firstName
+    db_client.lastName = client.lastName
+    db_client.companyName = client.companyName
+    db_client.address.postalCode = client.postalCode
+    db_client.address.city = client.city
+    
+    db.commit()
+    db.refresh(db_client)
+    
+    return db_client
